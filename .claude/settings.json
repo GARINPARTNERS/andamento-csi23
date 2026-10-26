@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -I */work/extract.py *)",
+      "Bash(python3 -I */work/build.py *)"
+    ]
+  }
+}
