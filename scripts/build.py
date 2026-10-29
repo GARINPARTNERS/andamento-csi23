@@ -6,6 +6,47 @@ m = re.search(r'<style>\n(/\* Layout: painel operacional.*?)</style>', P, re.S)
 css = m.group(1)
 R = json.load(open(src, encoding='utf-8'))
 import hashlib, datetime, zoneinfo
+from html import escape
+from html.parser import HTMLParser
+# O HTML vindo do painel é filtrado: só tags/atributos conhecidos passam (sem script, eventos, links ou url() externos).
+OK_TAGS = {'span','div','b','i','em','strong','br','img','header','h1'}
+OK_ATTRS = {'class','style','id','alt','title'}
+VOID = {'br','img'}
+DROP = ('script','style','iframe','object','embed','svg','math','template')
+class Limpa(HTMLParser):
+    def __init__(s): super().__init__(convert_charrefs=True); s.o = []; s.pilha = []; s.pula = 0
+    def handle_starttag(s, tag, attrs):
+        if tag in DROP: s.pula += 1; return
+        if s.pula or tag not in OK_TAGS: return
+        a = []
+        for k, v in attrs:
+            v = v or ''
+            if k == 'src' and tag == 'img':
+                if re.match(r'data:image/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+$', v): a.append(f' src="{v}"')
+            elif k in OK_ATTRS:
+                if k == 'style' and re.search(r'url\(|expression|javascript|@import|behavior', v, re.I): continue
+                a.append(f' {k}="{escape(v, quote=True)}"')
+        s.o.append(f'<{tag}{"".join(a)}>')
+        if tag not in VOID: s.pilha.append(tag)
+    def handle_endtag(s, tag):
+        if tag in DROP: s.pula = max(0, s.pula - 1); return
+        if s.pula: return
+        if tag in s.pilha:
+            while s.pilha:
+                t = s.pilha.pop(); s.o.append(f'</{t}>')
+                if t == tag: break
+    def handle_data(s, d):
+        if not s.pula: s.o.append(escape(d, quote=False))
+    def close(s):
+        super().close()
+        while s.pilha: s.o.append(f'</{s.pilha.pop()}>')
+def limpa(h):
+    p = Limpa(); p.feed(h or ''); p.close(); return ''.join(p.o)
+for t in R['terms']:
+    for x in t['discs']:
+        for d in x['docs']:
+            d['sit'] = limpa(d['sit']); d['env'] = limpa(d['env'])
+R['header'] = limpa(R.get('header'))
 for t in R['terms']:
     if not t.get('obs'): t.pop('obs', None)
     for x in t['discs']:
